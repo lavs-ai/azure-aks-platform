@@ -1,0 +1,125 @@
+# Azure DevOps pipeline: Terraform + Helm to AKS (SIT automatic, UAT on approval)
+# Required setup (in Azure DevOps, not in this repo):
+#  - Service connection: azure-service-connection (Azure Resource Manager, to the subscription)
+#  - Environments: sit, uat — the uat environment has a manual approval check
+#    (a named approver) configured in Azure DevOps > Environments > uat > Approvals.
+#  - Variable group: aks-platform-vars (optional) for non-secret values.
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - terraform/**
+      - helm/**
+      - azure-pipelines.yml
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  terraformVersion: "1.5.7"
+  helmVersion: "3.14.0"
+  azureServiceConnection: "azure-service-connection"
+  resourceGroup: "rg-aks-platform-demo"
+  clusterName: "aks-platform-demo"
+
+stages:
+  - stage: Validate
+    displayName: Validate Terraform and Helm
+    jobs:
+      - job: validate
+        displayName: fmt, validate, plan, helm lint
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: TerraformInstaller@1
+            displayName: Install Terraform
+            inputs:
+              terraformVersion: $(terraformVersion)
+
+          - script: |
+              terraform fmt -check -recursive terraform/
+              cd terraform
+              terraform init -backend=false
+              terraform validate
+            displayName: Terraform fmt and validate
+
+          - task: AzureCLI@2
+            displayName: Terraform plan
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                cd terraform
+                terraform init
+                terraform plan -out=tfplan
+                terraform show -json tfplan > tfplan.json
+
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash -s -- --version v$(helmVersion)
+              helm lint helm/app
+              helm template demo-app helm/app -f helm/app/values-sit.yaml > /dev/null
+              helm template demo-app helm/app -f helm/app/values-uat.yaml > /dev/null
+            displayName: Helm lint and template SIT/UAT
+
+  - stage: DeploySIT
+    displayName: Deploy to SIT
+    dependsOn: Validate
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: deploy_sit
+        displayName: Deploy demo app to SIT
+        pool:
+          vmImage: ubuntu-latest
+        environment: sit
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: Helm upgrade SIT
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az aks get-credentials --resource-group $(resourceGroup) \
+                        --name $(clusterName) --overwrite-existing
+                      helm upgrade --install demo-app-sit helm/app \
+                        --namespace sit --create-namespace \
+                        -f helm/app/values-sit.yaml --wait --timeout 5m
+                      kubectl -n sit rollout status deployment/demo-app-sit-demo-app
+
+  - stage: DeployUAT
+    displayName: Deploy to UAT (manual approval)
+    dependsOn: DeploySIT
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: deploy_uat
+        displayName: Deploy demo app to UAT
+        pool:
+          vmImage: ubuntu-latest
+        # The manual approval is configured on the 'uat' environment in
+        # Azure DevOps. This stage will pause there until an approver approves.
+        environment: uat
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: Helm upgrade UAT
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az aks get-credentials --resource-group $(resourceGroup) \
+                        --name $(clusterName) --overwrite-existing
+                      helm upgrade --install demo-app-uat helm/app \
+                        --namespace uat --create-namespace \
+                        -f helm/app/values-uat.yaml --wait --timeout 5m
+                      kubectl -n uat rollout status deployment/demo-app-uat-demo-app
