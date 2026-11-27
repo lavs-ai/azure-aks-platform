@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and edit. NEVER commit terraform.tfvars.
+# These are example values only — no real subscription or secret here.
+resource_group_name = "rg-aks-platform-demo"
+location            = "australiaeast"
+environment         = "demo"
+cluster_name        = "aks-platform-demo"
+dns_prefix          = "aksplatform"
+node_count          = 1
+min_count           = 1
+max_count           = 3
+node_vm_size        = "Standard_D2s_v5"
+# ACR and Key Vault names must be globally unique — change these if taken.
+acr_name        = "acraksplatformdemo"
+key_vault_name  = "kv-aks-platform-demo"
