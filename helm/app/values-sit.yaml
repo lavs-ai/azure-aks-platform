@@ -1,0 +1,16 @@
+# SIT: smallest footprint — fast feedback, cheap to run.
+replicaCount: 1
+
+image:
+  tag: "1.27-alpine-sit"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+environment: sit
+message: "Hello from SIT"
