@@ -1,0 +1,23 @@
+# Shared defaults. Environment overrides live in values-sit.yaml / values-uat.yaml.
+# Do not put secrets in values files — secrets come from Key Vault at runtime.
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+environment: prod
+message: "Hello from the AKS platform demo"
