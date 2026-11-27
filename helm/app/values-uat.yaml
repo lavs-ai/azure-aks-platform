@@ -1,0 +1,16 @@
+# UAT: prod-shaped, so a pass here means something.
+replicaCount: 2
+
+image:
+  tag: "1.27-alpine-uat"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+environment: uat
+message: "Hello from UAT"
